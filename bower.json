@@ -17,6 +17,7 @@
     "purescript-tailrec": "~0.3.1",
     "purescript-random": "~0.2.2",
     "purescript-math": "~0.2.0",
-    "purescript-strings": "~0.7.0"
+    "purescript-strings": "~0.7.0",
+    "purescript-difflists": "~2.1.0"
   }
 }

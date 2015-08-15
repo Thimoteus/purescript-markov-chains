@@ -6,9 +6,9 @@ import Data.Markov.Types
 import Data.List hiding (insert)
 import Data.Int
 import Data.Maybe
-import Data.Tuple
 import Data.Foldable
 import Data.Either
+import qualified Data.DList as DL
 import qualified Data.String as S
 import qualified Data.List.Unsafe as U
 import qualified Data.Map as M
@@ -26,25 +26,20 @@ import Control.Monad.Eff.Console
 mu :: forall a. (a -> Boolean) -> List a -> Maybe a
 mu pred xs = head $ filter pred xs
 
-normalize :: List Int -> List Number
-normalize xs = map (/ (toNumber $ length xs)) $ map toNumber xs
-
 choose :: forall a e. List a -> Eff ( random :: RANDOM | e ) (Maybe a)
-choose Nil = return Nothing
 choose xs = do
-  let n = length xs
-      partition = zip (normalize (1 .. n)) xs
-  i <- random
-  maybe (return $ head xs) (return <<< Just <<< snd) $ mu (\ pair -> i < fst pair) partition
+  i <- randomInt 0 $ length xs - 1
+  return $ xs !! i
 
 kgram :: forall a. Int -> List a -> List (List a)
 kgram _ Nil = Nil
-kgram n lst = go lst
+kgram n lst = tailRec go { curr: lst, acc: DL.toDList [] }
   where
-    go Nil = Nil
-    go xs@(Cons x rest)
-      | length xs < n = (append xs $ take (n - length xs) lst) : go rest
-      | otherwise = take n xs : go rest
+    go :: _ -> Either _ (List (List _))
+    go { curr: Nil, acc: acc } = Right $ DL.fromDList acc
+    go { curr: xs@(Cons _ rest), acc: acc }
+      | length xs < n = Left { curr: rest, acc: DL.snoc acc (append xs $ take (n - length xs) lst) }
+      | otherwise = Left { curr: rest, acc: DL.snoc acc $ take n xs }
 
 -- | This module is essentially a proof of existence for certain Markov Chains.
 -- | An algorithm is provided which takes a list of strings and constructs by induction a Markov Chain of the
@@ -133,14 +128,14 @@ nextState chain curr = do
 -- | elements as the source/destination of a transition, respectively. Then we continue with the second element and
 -- | the tail of the input list.
 mkMarkovChain :: forall a. (Ord a) => Int -> List a -> MarkovChain (List a)
-mkMarkovChain k xs = build empty $ kgram k xs
+mkMarkovChain k xs = tailRec build { acc: empty, curr: kgram k xs }
   where
-    build :: MarkovChain (List a) -> List (List a) -> MarkovChain (List a)
-    build chain Nil = chain
-    build chain (Cons x (Cons y rest)) = build (chain # insert x y) (y : rest)
-    build chain (Cons x Nil)
-      | V.isEmpty $ states chain = insert x x chain
-      | otherwise = insert x (fromState $ start chain) chain
+    build :: _ -> Either _ (MarkovChain (List _))
+    build { acc: chain, curr: Nil } = Right chain
+    build { acc: chain, curr: Cons x (Cons y rest) } = Left { acc: chain # insert x y, curr: y : rest }
+    build { acc: chain, curr: Cons x Nil }
+      | V.isEmpty $ states chain = Right $ insert x x chain
+      | otherwise = Right $ insert x (fromState $ start chain) chain
 
 -- | Now we can create a proper chain (well-ordering) by starting at the distinguished state and choosing uniformly
 -- | at random the next state from the list of possible transition destinations. The third and fourth arguments are
