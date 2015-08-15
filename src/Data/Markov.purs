@@ -3,14 +3,16 @@ module Data.Markov where
 import Prelude
 import Data.Markov.Types
 
-import Data.List hiding (insert)
+import Data.Array hiding (insert)
 import Data.Int
 import Data.Maybe
 import Data.Foldable
 import Data.Either
+import qualified Data.List as L
 import qualified Data.DList as DL
 import qualified Data.String as S
-import qualified Data.List.Unsafe as U
+import qualified Data.Array.Unsafe as U
+import qualified Data.List.Unsafe as UL
 import qualified Data.Map as M
 import qualified Data.Set as V
 
@@ -23,23 +25,20 @@ import Control.Monad.Eff.Console
 
 -- | Utility functions
 
-mu :: forall a. (a -> Boolean) -> List a -> Maybe a
-mu pred xs = head $ filter pred xs
-
-choose :: forall a e. List a -> Eff ( random :: RANDOM | e ) (Maybe a)
+choose :: forall a e. Array a -> Eff ( random :: RANDOM | e ) (Maybe a)
 choose xs = do
   i <- randomInt 0 $ length xs - 1
   return $ xs !! i
 
-kgram :: forall a. Int -> List a -> List (List a)
-kgram _ Nil = Nil
+kgram :: forall a. Int -> Array a -> Array (Array a)
+kgram _ [] = []
 kgram n lst = tailRec go { curr: lst, acc: DL.toDList [] }
   where
-    go :: _ -> Either _ (List (List _))
-    go { curr: Nil, acc: acc } = Right $ DL.fromDList acc
-    go { curr: xs@(Cons _ rest), acc: acc }
-      | length xs < n = Left { curr: rest, acc: DL.snoc acc (append xs $ take (n - length xs) lst) }
-      | otherwise = Left { curr: rest, acc: DL.snoc acc $ take n xs }
+    go :: _ -> Either _ (Array (Array _))
+    go { curr: [], acc: acc } = Right $ DL.fromDList acc
+    go { curr: xs, acc: acc }
+      | length xs < n = Left { curr: U.tail xs, acc: DL.snoc acc (append xs $ take (n - length xs) lst) }
+      | otherwise = Left { curr: U.tail xs, acc: DL.snoc acc $ take n xs }
 
 -- | This module is essentially a proof of existence for certain Markov Chains.
 -- | An algorithm is provided which takes a list of strings and constructs by induction a Markov Chain of the
@@ -65,12 +64,12 @@ transitions (MarkovChain _ t) = t
 -- | the method below, this state will always exist by construction.
 start :: forall a. (Ord a) => MarkovChain a -> State a
 start (MarkovChain ss _) = go (V.toList ss) where
-  go (Cons x@(Start _) _) = x
-  go (Cons _ rest) = go rest
+  go (L.Cons x@(Start _) _) = x
+  go (L.Cons _ rest) = go rest
 
 -- | Since we store transitions as a map of states to lists of states, getting the image of for a given state is merely
 -- | looking up the value for a key, when the key is the given state.
-possibleTransitions :: forall a. (Ord a) => MarkovChain a -> State a -> List (State a)
+possibleTransitions :: forall a. (Ord a) => MarkovChain a -> State a -> Array (State a)
 possibleTransitions chain curr = maybe (return curr) id $ M.lookup curr $ transitions chain
 
 -- | To build up the chain, we need a method of adding a new state to the chain's set of states. If the set is empty,
@@ -127,38 +126,39 @@ nextState chain curr = do
 -- | Inductive case: The input list has `k >= 2` elements. We add the first element as a state, and the first two
 -- | elements as the source/destination of a transition, respectively. Then we continue with the second element and
 -- | the tail of the input list.
-mkMarkovChain :: forall a. (Ord a) => Int -> List a -> MarkovChain (List a)
+mkMarkovChain :: forall a. (Ord a) => Int -> Array a -> MarkovChain (Array a)
 mkMarkovChain k xs = tailRec build { acc: empty, curr: kgram k xs }
   where
-    build :: _ -> Either _ (MarkovChain (List _))
-    build { acc: chain, curr: Nil } = Right chain
-    build { acc: chain, curr: Cons x (Cons y rest) } = Left { acc: chain # insert x y, curr: y : rest }
-    build { acc: chain, curr: Cons x Nil }
+    build :: _ -> Either _ (MarkovChain (Array _))
+    build { acc: chain, curr: [] } = Right chain
+    build { acc: chain, curr: xs } | length xs >= 2 = Left { acc: chain # insert (U.head xs) (U.head (U.tail xs)), curr: U.tail xs }
+    --build { acc: chain, curr: Cons x (Cons y rest) } = Left { acc: chain # insert x y, curr: y : rest }
+    build { acc: chain, curr: [x] }
       | V.isEmpty $ states chain = Right $ insert x x chain
       | otherwise = Right $ insert x (fromState $ start chain) chain
 
 -- | Now we can create a proper chain (well-ordering) by starting at the distinguished state and choosing uniformly
 -- | at random the next state from the list of possible transition destinations. The third and fourth arguments are
 -- | to handle pre-emptive termination of the chain, for example when encountering a newline.
-createPath :: forall a e. (Ord a) => Int -> MarkovChain a -> (a -> Boolean) -> Number -> Eff ( random :: RANDOM | e ) (List (State a))
+createPath :: forall a e. (Ord a) => Int -> MarkovChain a -> (a -> Boolean) -> Number -> Eff ( random :: RANDOM | e ) (Array (State a))
 createPath n chain term p = tailRecM createPath' { count: n, lst: singleton $ start chain }
   where
     createPath' { count: 0 , lst: acc } = return $ Right acc
-    createPath' { count: k, lst: acc@(Cons top _) }
-      | term $ fromState top = do
+    createPath' { count: k, lst: acc }
+      | term $ fromState (U.head acc) = do
         continue <- random
         if continue < p
           then return $ Right acc
-          else nextState chain top >>= \next -> return $ Left { count: k - 1, lst: next : acc }
+          else nextState chain (U.head acc) >>= \next -> return $ Left { count: k - 1, lst: next : acc }
       | otherwise = do
-        next <- nextState chain top
+        next <- nextState chain (U.head acc)
         return $ Left { count: k - 1, lst: next : acc }
 
-showPath :: forall a. (Show a) => States (List a) -> String
-showPath = S.joinWith "" <<< fromList <<< reverse <<< map (\ (State x) -> show $ U.last x) <<< V.toList
+showPath :: forall a. (Show a) => States (Array a) -> String
+showPath = S.joinWith "" <<< L.fromList <<< L.reverse <<< map (\ (State x) -> show $ U.last x) <<< V.toList
 
-showPathOfStrings :: List (State (List String)) -> String
-showPathOfStrings = S.joinWith "" <<< fromList <<< extractStrings <<< reverse
+showPathOfStrings :: Array (State (Array String)) -> String
+showPathOfStrings = S.joinWith "" <<< extractStrings <<< reverse
   where
-    extractStrings :: List (State (List String)) -> List String
-    extractStrings (Cons x xs) = (S.joinWith "" $ fromList $ fromState x) : (map (U.last <<< fromState) xs)
+    extractStrings :: Array (State (Array String)) -> Array String
+    extractStrings xs = (S.joinWith "" $ fromState (U.head xs)) : (map (U.last <<< fromState) (U.tail xs))

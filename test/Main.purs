@@ -2,12 +2,12 @@ module Test.Main where
 
 import Prelude
 import Data.Markov
-import Data.List hiding (insert)
+import Data.Array hiding (insert)
 import qualified Data.String as S
 import Control.Monad.Eff.Console
 
 main = do
-  let alphabet = toList $ S.split "" txt
+  let alphabet = S.split "" txt
       chain = mkMarkovChain 5 alphabet
   path <- createPath 200 chain (const false) 1.0
   log $ showPathOfStrings path

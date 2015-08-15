@@ -3,6 +3,7 @@ module Data.Markov.Types where
 import Prelude
 
 import Data.List
+import qualified Data.Array as A
 import Data.Tuple
 import Data.Either
 import Data.Monoid
@@ -13,7 +14,7 @@ import Control.Monad.Rec.Class
 
 data State a = State a | Start a
 type States a = V.Set (State a)
-type Transitions a = M.Map (State a) (List (State a))
+type Transitions a = M.Map (State a) (Array (State a))
 data MarkovChain a = MarkovChain (States a) (Transitions a)
 
 instance stateEq :: (Eq a) => Eq (State a) where
@@ -63,8 +64,8 @@ fromState :: forall a. State a -> a
 fromState (State a) = a
 fromState (Start a) = a
 
-showMap :: forall k v. (Show k, Show v) => M.Map k (List v) -> String
-showMap = ("Map " ++) <<< showList <<< map (showList <<< snd) <<< M.toList
+showMap :: forall k v. (Show k, Show v) => M.Map k (Array v) -> String
+showMap = ("Map " ++) <<< show <<< map (show <<< snd) <<< M.toList
 
 showSet :: forall e. (Show e) => V.Set e -> String
 showSet = ("Set " ++) <<< showList <<< V.toList
@@ -72,7 +73,7 @@ showSet = ("Set " ++) <<< showList <<< V.toList
 mapStates :: forall a b. (Ord a, Ord b) => (a -> b) -> States a -> States b
 mapStates f ss = V.toList ss # map (map f) # V.fromList
 
-mapTransition :: forall a b. (Ord a, Ord b) => (a -> b) -> M.Map a (List a) -> M.Map b (List b)
+mapTransition :: forall a b. (Ord a, Ord b) => (a -> b) -> M.Map a (Array a) -> M.Map b (Array b)
 mapTransition f dict = M.toList dict # map (mapTuple f) # M.fromList
   where
     mapTuple f (Tuple x y) = Tuple (f x) (map f y)
