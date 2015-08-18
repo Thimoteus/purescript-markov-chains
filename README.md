@@ -4,7 +4,7 @@
 
 ## installing
 
-`bower install purescript-markov-chains`
+`bower install git@github.com:Thimoteus/purescript-markov-chains.git`
 
 ## example
 
